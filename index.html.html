@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tubrax | Checklist Cloud</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 
+        INSTRUÇÕES PARA O BANCO DE DADOS (FIREBASE):
+        1. Vá a https://console.firebase.google.com/
+        2. Crie um projeto gratuito.
+        3. Adicione uma "Web App" e copie as credenciais (apiKey, authDomain, etc).
+        4. Substitua os campos vazios no objeto 'config' abaixo.
+    -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // CONFIGURAÇÃO DO FIREBASE (Substitua pelos seus dados do console do Firebase)
+        const config = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+
+        // Fallback para o ambiente de testes se as chaves estiverem vazias
+        const firebaseConfig = config.apiKey ? config : JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const finalAppId = typeof __app_id !== 'undefined' ? __app_id : 'tubrax-estamparia-001';
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.db = db;
+        window.auth = auth;
+        window.appId = finalAppId;
+        window.firestoreUtils = { doc, setDoc, serverTimestamp };
+
+        async function initAuth() {
+            try {
+                await signInAnonymously(auth);
+                console.log("Conectado à Nuvem Grupo TBX");
+            } catch (error) {
+                console.error("Erro na conexão:", error);
+            }
+        }
+        initAuth();
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+        :root { --navy: #002147; --turquoise: #00CED1; --white: #FFFFFF; }
+        body { font-family: 'Inter', sans-serif; background-color: #f0f4f8; }
+        .text-navy { color: var(--navy); }
+        .bg-navy { background-color: var(--navy); }
+        .text-turquoise { color: var(--turquoise); }
+        .bg-turquoise { background-color: var(--turquoise); }
+        .checkbox-custom:checked + span { text-decoration: line-through; color: #94a3b8; }
+        .checkbox-custom:disabled { cursor: not-allowed; opacity: 0.3; }
+        .progress-transition { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        .image-preview { width: 90px; height: 90px; object-fit: cover; border-radius: 6px; border: 2px solid var(--turquoise); }
+        .card-accent { border-left: 5px solid var(--navy); }
+        #success-modal { display: none; position: fixed; inset: 0; background: rgba(0, 33, 71, 0.8); z-index: 50; align-items: center; justify-content: center; padding: 1rem; }
+        @media print { .no-print { display: none !important; } body { background: white; } }
+    </style>
+</head>
+<body class="min-h-screen text-slate-900">
+
+    <!-- Modal de Sucesso -->
+    <div id="success-modal" class="no-print">
+        <div class="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl border-t-8 border-turquoise">
+            <div id="modal-loading" class="mb-4">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-navy mx-auto"></div>
+                <p class="mt-2 text-xs font-bold text-navy uppercase tracking-widest">Sincronizando com Grupo TBX...</p>
+            </div>
+            <div id="modal-finished" class="hidden">
+                <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-black text-navy uppercase mb-2">Checklist Salvo!</h3>
+                <p class="text-slate-600 text-sm mb-6">Relatório enviado para a base de dados central.</p>
+                <button onclick="closeModal()" class="w-full py-3 bg-navy text-white font-bold rounded-lg hover:bg-slate-800 transition-all">FECHAR</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="h-2 bg-turquoise no-print"></div>
+
+    <div class="max-w-3xl mx-auto px-4 py-8">
+        <header class="bg-white rounded-xl shadow-lg p-6 mb-8 border border-slate-200">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div class="flex items-center gap-4">
+                    <div class="bg-navy p-3 rounded-lg"><span class="text-white font-black text-xl italic">TUBRAX</span></div>
+                    <div>
+                        <h1 class="text-xl font-black text-navy uppercase tracking-widest">Controle de Estamparia</h1>
+                        <p class="text-slate-500 text-sm font-medium" id="current-date"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 no-print">
+                    <button onclick="resetChecklist()" class="px-4 py-2 text-xs font-bold uppercase text-slate-400 hover:text-red-600">Resetar</button>
+                    <button onclick="window.print()" class="px-5 py-2.5 text-xs font-bold uppercase bg-navy text-white rounded shadow-md">PDF</button>
+                </div>
+            </div>
+
+            <div class="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <label for="operator-name" class="block text-[10px] font-black uppercase tracking-widest text-navy mb-2">Nome do Operador</label>
+                <input type="text" id="operator-name" placeholder="Quem está operando agora?" class="w-full px-4 py-3 bg-white border border-slate-300 rounded-md text-sm font-semibold text-navy focus:outline-none focus:border-turquoise transition-all" oninput="saveOperatorName(this.value)">
+            </div>
+
+            <div class="mt-8 pt-6 border-t border-slate-100">
+                <div class="flex justify-between items-end mb-3">
+                    <span class="text-xs font-bold uppercase text-slate-500">Progresso do Turno</span>
+                    <span class="text-lg font-black text-turquoise" id="progress-text">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                    <div id="progress-bar" class="bg-turquoise h-full progress-transition w-0"></div>
+                </div>
+            </div>
+        </header>
+
+        <div id="checklist-container" class="space-y-6"></div>
+
+        <div class="mt-10 no-print">
+            <button id="finish-btn" onclick="finishChecklist()" class="w-full py-5 bg-navy text-white text-sm font-black uppercase tracking-[0.2em] rounded-xl shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Finalizar e Sincronizar
+            </button>
+            <p id="finish-error" class="text-center text-[10px] text-red-500 font-bold uppercase mt-4 hidden">Preencha o nome, todos os itens e fotos antes de finalizar.</p>
+        </div>
+
+        <footer class="mt-12 text-center border-t border-slate-200 pt-8 pb-12">
+            <p class="text-slate-400 text-[10px] font-bold uppercase tracking-[0.3em]">Grupo TBX</p>
+        </footer>
+    </div>
+
+    <script>
+        const checklistData = [
+            { title: "⚙️ Prensas Hidráulicas (PH 01 - 04)", items: [{ id: "ph1", text: "Nível de óleo e pressão nominal." }, { id: "ph2", text: "Cortinas de luz e emergência." }, { id: "ph3", text: "Vazamentos mangueiras/cilindros." }, { id: "ph4", text: "Lubrificação das guias." }] },
+            { title: "🔨 Prensas Excêntricas (PE 05 - 06)", items: [{ id: "pe1", text: "Lubrificação biela e virabrequim." }, { id: "pe2", text: "Teste de engate e freio." }] },
+            { title: "🧼 Lavagem e Recozimento", items: [{ id: "lv1", text: "Lavadora: Temp. e detergente." }, { id: "tr1", text: "Recozimento: Temp. (201/304)." }, { id: "tr2", text: "Recozimento: Resfriamento." }] },
+            { title: "📄 Qualidade (Aço 201/304)", items: [{ id: "mat1", text: "Certificado Lote/Espessura." }, { id: "mat2", text: "Inspeção visual (Riscos/Rebarbas)." }] },
+            { title: "🦺 Segurança (5S)", items: [{ id: "seg1", text: "EPIs (Luvas/Óculos/Auricular)." }, { id: "seg2", text: "Segregação de scrap/sucata." }] }
+        ];
+
+        function initApp() {
+            const options = { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' };
+            document.getElementById('current-date').innerText = new Date().toLocaleDateString('pt-BR', options);
+            const savedName = localStorage.getItem('operator_name');
+            if (savedName) document.getElementById('operator-name').value = savedName;
+            renderChecklist();
+            updateProgress();
+        }
+
+        function saveOperatorName(name) {
+            localStorage.setItem('operator_name', name);
+            renderChecklist();
+            updateProgress();
+        }
+
+        function renderChecklist() {
+            const container = document.getElementById('checklist-container');
+            const operatorName = localStorage.getItem('operator_name') || "";
+            const isNameFilled = operatorName.trim().length > 3;
+            container.innerHTML = '';
+
+            checklistData.forEach(section => {
+                const sectionHtml = `
+                    <div class="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden card-accent">
+                        <div class="bg-navy px-6 py-4"><h2 class="font-black text-white text-[10px] uppercase tracking-widest">${section.title}</h2></div>
+                        <div class="p-6 space-y-6">
+                            ${section.items.map(item => {
+                                const savedPhoto = localStorage.getItem(`photo_${item.id}`);
+                                const isChecked = localStorage.getItem(item.id) === 'true';
+                                const canCheck = savedPhoto && isNameFilled;
+                                return `
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div class="flex items-start gap-4 flex-1">
+                                        <input type="checkbox" id="${item.id}" class="checkbox-custom mt-1 w-6 h-6 rounded text-turquoise focus:ring-turquoise cursor-pointer" onchange="handleCheck('${item.id}')" ${isChecked ? 'checked' : ''} ${!canCheck ? 'disabled' : ''}>
+                                        <div class="flex-1">
+                                            <span class="text-sm font-bold text-navy block mb-2">${item.text}</span>
+                                            <div class="flex items-center gap-3 no-print">
+                                                <label for="file_${item.id}" class="px-3 py-1.5 bg-slate-100 rounded text-[9px] font-black uppercase text-slate-600 cursor-pointer">
+                                                    ${savedPhoto ? 'Trocar Foto' : 'Anexar Foto'}
+                                                </label>
+                                                <input type="file" id="file_${item.id}" accept="image/*" capture="environment" class="hidden" onchange="handleFileUpload(this, '${item.id}')">
+                                                <span class="text-[8px] font-bold uppercase tracking-widest ${!isNameFilled ? 'text-red-400' : !savedPhoto ? 'text-amber-400' : 'text-green-400'}">
+                                                    ${!isNameFilled ? 'Nome Requerido' : !savedPhoto ? 'Foto Requerida' : 'Pronto'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="preview_container_${item.id}" class="${savedPhoto ? 'flex' : 'hidden'} justify-end">
+                                        <img src="${savedPhoto || ''}" id="img_${item.id}" class="image-preview" alt="Evidência">
+                                    </div>
+                                </div><hr class="border-slate-50 last:hidden">`}).join('')}
+                        </div>
+                    </div>`;
+                container.innerHTML += sectionHtml;
+            });
+        }
+
+        async function handleFileUpload(input, id) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 400; 
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                    canvas.width = width; canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const base64Data = canvas.toDataURL('image/jpeg', 0.6);
+                    localStorage.setItem(`photo_${id}`, base64Data);
+                    renderChecklist(); updateProgress();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handleCheck(id) {
+            localStorage.setItem(id, document.getElementById(id).checked);
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const checked = document.querySelectorAll('input[type="checkbox"]:checked');
+            const percentage = Math.round((checked.length / checkboxes.length) * 100) || 0;
+            document.getElementById('progress-bar').style.width = percentage + '%';
+            document.getElementById('progress-text').innerText = percentage + '%';
+            return percentage;
+        }
+
+        async function finishChecklist() {
+            const progress = updateProgress();
+            const operatorName = (localStorage.getItem('operator_name') || "").trim();
+            if (progress === 100 && operatorName.length > 3) {
+                document.getElementById('finish-error').classList.add('hidden');
+                document.getElementById('success-modal').style.display = 'flex';
+                document.getElementById('modal-loading').classList.remove('hidden');
+                document.getElementById('modal-finished').classList.add('hidden');
+
+                if (window.auth.currentUser) {
+                    const submissionId = `sub_${Date.now()}`;
+                    const payload = {
+                        operator: operatorName,
+                        timestamp: window.firestoreUtils.serverTimestamp(),
+                        items: {}
+                    };
+                    
+                    checklistData.forEach(section => {
+                        section.items.forEach(item => {
+                            payload.items[item.id] = {
+                                text: item.text,
+                                photo: localStorage.getItem(`photo_${item.id}`)
+                            };
+                        });
+                    });
+
+                    try {
+                        const { doc, setDoc } = window.firestoreUtils;
+                        // O caminho deve ser artifacts/{appId}/public/data/{collection}
+                        await setDoc(doc(window.db, 'artifacts', window.appId, 'public', 'data', 'submissions', submissionId), payload);
+                        
+                        document.getElementById('modal-loading').classList.add('hidden');
+                        document.getElementById('modal-finished').classList.remove('hidden');
+                    } catch (e) {
+                        console.error(e);
+                        alert("Erro ao sincronizar. Verifique a internet ou as chaves do Firebase.");
+                        closeModal();
+                    }
+                }
+            } else {
+                document.getElementById('finish-error').classList.remove('hidden');
+            }
+        }
+
+        function closeModal() { document.getElementById('success-modal').style.display = 'none'; }
+        function resetChecklist() { if (confirm("Limpar todos os dados atuais?")) { localStorage.clear(); location.reload(); } }
+        window.onload = initApp;
+    </script>
+</body>
+</html>
